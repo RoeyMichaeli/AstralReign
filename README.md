@@ -15,7 +15,7 @@ The game employs a modular architecture that allows different systems (e.g., eco
 The upper layers of the Architecture are built with OOP principles in mind, while performance-heavy sections, such as the economy simulation system, celestial simulation, geopolitical cost-balance analysis, physics, etc. are built with DOD principles in mind.
 
 **5. User Experience & Interface Design**
-The user interface is focused on clarity and simplicity (Concise text and recognizable and easily differentiated icons), consistency (uniform fonts, colors, styles), feedback (less than 33ms between updates - in 60 fps scenarios, zero frames between updates). Visual hierarchy (Most critical information under one button click), Data Visualization (charts, graphs, dashboards), Minimize Cognitive Load (Essential data shown, with drill-down options)
+The user interface is focused on clarity and simplicity (Concise text and recognizable and easily differentiated icons), consistency (uniform fonts, colors, styles), feedback (less than 33ms between updates - in 30 fps scenarios, zero frames between updates). Visual hierarchy (Most critical information under one button click), Data Visualization (charts, graphs, dashboards), Minimize Cognitive Load (Essential data shown, with drill-down options)
 
 **6. Audio Design & Music System**
 The audio design philosophy focuses on creating dynamic soundscapes and adaptive music that respond to various gameplay states.
