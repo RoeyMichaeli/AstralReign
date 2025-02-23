@@ -5,6 +5,8 @@
 #include <entt/entt.hpp>
 #include <fstream>
 #include <iostream>
+
+#include "RandomUtils.hpp"
 //#include <Eigen/Dense>
 
 //using Eigen::Vector2f;
@@ -43,6 +45,8 @@ struct CShape {
 		const sf::Color& fill, const sf::Color& outline, float thickness)
 		: circle(radius, points)
 	{
+		circle.setPointCount(points);
+		circle.setRadius(radius);
 		circle.setFillColor(fill);
 		circle.setOutlineColor(outline);
 		circle.setOutlineThickness(thickness);
@@ -105,7 +109,7 @@ struct BulletConfig {
 };
 
 struct EnemySpawnArea {
-	short minX, minY, maxX, maxY;
+	float minX, minY, maxX, maxY;
 };
 
 class Game {
@@ -117,13 +121,15 @@ class Game {
 	BulletConfig m_bulletConfig;
 
 	EnemySpawnArea m_enemySpawnArea;
-
 	sf::Clock m_deltaClock;
+	entt::entity m_playerEntity;
+	Vector2f m_screenSize;
+
 	int m_score = 0;
 	int m_currentFrame = 0;
 	int m_lastEnemySpawnTime = 0;
 
-	Vector2f m_screenSize;
+
 
 	bool m_running = true;
 	bool m_paused = false;
@@ -235,10 +241,45 @@ class Game {
 			}
 		}
 
+		// Update movement for small enemies
+		auto smallEnemyView = m_registry.view<TSmallEnemy, CTransform>();
+		for (auto entity : smallEnemyView)
+		{
+			auto& transform = smallEnemyView.get<CTransform>(entity);
+
+			// Update small enemy position
+			transform.position += transform.velocity;
+
+			float radius = static_cast<float>(m_enemyConfig.SR * 0.75);
+
+			// Bounce off left/right walls
+			if (transform.position.x - radius < 0)
+			{
+				transform.position.x = radius;
+				transform.velocity.x = -transform.velocity.x;
+			}
+			else if (transform.position.x + radius > m_screenSize.x)
+			{
+				transform.position.x = m_screenSize.x - radius;
+				transform.velocity.x = -transform.velocity.x;
+			}
+
+			// Bounce off top/bottom walls
+			if (transform.position.y - radius < 0)
+			{
+				transform.position.y = radius;
+				transform.velocity.y = -transform.velocity.y;
+			}
+			else if (transform.position.y + radius > m_screenSize.y)
+			{
+				transform.position.y = m_screenSize.y - radius;
+				transform.velocity.y = -transform.velocity.y;
+			}
+		}
+
 		// Update the player separately, since its movement is handled by user input.
-		auto player = m_registry.view<TPlayer>().front();
-		auto& playerTransform = m_registry.get<CTransform>(player);
-		auto& playerInput = m_registry.get<CInput>(player);
+		auto& playerTransform = m_registry.get<CTransform>(m_playerEntity);
+		auto& playerInput = m_registry.get<CInput>(m_playerEntity);
 
 		if (playerInput.left) playerTransform.position.x -= playerTransform.velocity.x;
 		if (playerInput.right) playerTransform.position.x += playerTransform.velocity.x;
@@ -316,52 +357,120 @@ class Game {
 		}
 	}
 
-	void sLifespan() {}
-
 	void sCollision()
 	{
-		// Get a view over entities with both components
-		auto view = m_registry.view<CTransform, CColission>();
+		// Helper: mark an entity for destruction only once.
+		auto markForDestruction = [this](entt::entity e) {
+			if (!m_registry.all_of<TPendingDestruction>(e)) {
+				m_registry.emplace<TPendingDestruction>(e);
+			}
+			};
 
-		float distSquared;
-		float sumRadii;
-
-		// Iterate over each pair of entities (using structured bindings)
-		for (auto [entity1, transform1, col1] : view.each())
+		// --- Bullet vs. TEnemy collision ---
 		{
-			for (auto [entity2, transform2, col2] : view.each())
+			auto bulletView = m_registry.view<TBullet, CTransform, CColission>();
+			auto enemyView = m_registry.view<TEnemy, CTransform, CColission>();
+
+			for (auto bullet : bulletView)
 			{
-				// Avoid checking a pair twice
-				if (entity1 < entity2)
+				auto& bulletTransform = bulletView.get<CTransform>(bullet);
+				auto& bulletCol = bulletView.get<CColission>(bullet);
+
+				for (auto enemy : enemyView)
 				{
-					// Use squared distance for efficiency
-					sf::Vector2f diff = transform1.position - transform2.position;
-					distSquared = diff.x * diff.x + diff.y * diff.y;
-					sumRadii = col1.radius + col2.radius;
+					auto& enemyTransform = enemyView.get<CTransform>(enemy);
+					auto& enemyCol = enemyView.get<CColission>(enemy);
+
+					sf::Vector2f diff = bulletTransform.position - enemyTransform.position;
+					float distSquared = diff.x * diff.x + diff.y * diff.y;
+					float sumRadii = bulletCol.radius + enemyCol.radius;
+
 					if (distSquared < sumRadii * sumRadii)
 					{
-						// If one entity is a player and the other an enemy or small enemy, mark both for destruction, and respawn the player
-						if (m_registry.all_of<TPlayer>(entity1) &&
-							(m_registry.all_of<TEnemy>(entity2) || m_registry.all_of<TSmallEnemy>(entity2))
-							|| m_registry.all_of<TPlayer>(entity2) &&
-							(m_registry.all_of<TEnemy>(entity1) || m_registry.all_of<TSmallEnemy>(entity1)))
-						{
-							m_registry.emplace<TPendingDestruction>(entity1);
-							m_registry.emplace<TPendingDestruction>(entity2);
-							m_score -= 1000;
-							spawnPlayer();
-						}
-						// If one entity is a bullet and the other an enemy or small enemy, mark both for destruction
-						else if (m_registry.all_of<TBullet>(entity1) &&
-							(m_registry.all_of<TEnemy>(entity2) || m_registry.all_of<TSmallEnemy>(entity2))
-							|| m_registry.all_of<TBullet>(entity2) &&
-							(m_registry.all_of<TEnemy>(entity1) || m_registry.all_of<TSmallEnemy>(entity1)))
-						{
-							m_registry.emplace<TPendingDestruction>(entity1);
-							m_registry.emplace<TPendingDestruction>(entity2);
-							m_score += 100;
-						}
+						markForDestruction(bullet);
+						markForDestruction(enemy);
+						m_score += 100;
 					}
+				}
+			}
+		}
+
+		// --- Bullet vs. TSmallEnemy collision ---
+		{
+			auto bulletView = m_registry.view<TBullet, CTransform, CColission>();
+			auto smallEnemyView = m_registry.view<TSmallEnemy, CTransform, CColission>();
+
+			for (auto bullet : bulletView)
+			{
+				auto& bulletTransform = bulletView.get<CTransform>(bullet);
+				auto& bulletCol = bulletView.get<CColission>(bullet);
+
+				for (auto smallEnemy : smallEnemyView)
+				{
+					auto& enemyTransform = smallEnemyView.get<CTransform>(smallEnemy);
+					auto& enemyCol = smallEnemyView.get<CColission>(smallEnemy);
+
+					sf::Vector2f diff = bulletTransform.position - enemyTransform.position;
+					float distSquared = diff.x * diff.x + diff.y * diff.y;
+					float sumRadii = bulletCol.radius + enemyCol.radius;
+
+					if (distSquared < sumRadii * sumRadii)
+					{
+						markForDestruction(bullet);
+						markForDestruction(smallEnemy);
+						m_score += 100;
+					}
+				}
+			}
+		}
+
+		// --- Player vs. Enemy collision (handles both TEnemy and TSmallEnemy) ---
+		{
+			auto player = m_playerEntity;
+			auto& playerTransform = m_registry.get<CTransform>(player);
+			auto& playerCol = m_registry.get<CColission>(player);
+
+			// Check against TEnemy
+			auto enemyView = m_registry.view<TEnemy, CTransform, CColission>();
+			for (auto enemy : enemyView)
+			{
+				auto& enemyTransform = enemyView.get<CTransform>(enemy);
+				auto& enemyCol = enemyView.get<CColission>(enemy);
+
+				sf::Vector2f diff = playerTransform.position - enemyTransform.position;
+				float distSquared = diff.x * diff.x + diff.y * diff.y;
+				float sumRadii = playerCol.radius + enemyCol.radius;
+
+				if (distSquared < sumRadii * sumRadii)
+				{
+					markForDestruction(player);
+					markForDestruction(enemy);
+					m_score -= 1000;
+					spawnPlayer();
+					spawnSmallEnemies(enemy);
+					break;  // Exit loop since player has been handled.
+				}
+			}
+
+			// Check against TSmallEnemy
+			auto smallEnemyView = m_registry.view<TSmallEnemy, CTransform, CColission>();
+			for (auto smallEnemy : smallEnemyView)
+			{
+				auto& enemyTransform = smallEnemyView.get<CTransform>(smallEnemy);
+				auto& enemyCol = smallEnemyView.get<CColission>(smallEnemy);
+
+				sf::Vector2f diff = playerTransform.position - enemyTransform.position;
+				float distSquared = diff.x * diff.x + diff.y * diff.y;
+				float sumRadii = playerCol.radius + enemyCol.radius;
+
+				if (distSquared < sumRadii * sumRadii)
+				{
+					markForDestruction(player);
+					markForDestruction(smallEnemy);
+					m_score -= 1000;
+					spawnPlayer();
+					// Note: small enemies from a player collision might not spawn further small enemies.
+					break;  // Exit loop once the collision is handled.
 				}
 			}
 		}
@@ -376,29 +485,29 @@ class Game {
 	void spawnPlayer()
 	{
 		// Create player
-		auto player = m_registry.create();
+		m_playerEntity = m_registry.create();
 
-		m_registry.emplace<CTransform>(player,
-			Vector2f(m_screenSize.x / 2.0f, m_screenSize.y / 2.0f), // Position
-			Vector2f(m_playerConfig.S, m_playerConfig.S),             // Velocity
+		m_registry.emplace<CTransform>(m_playerEntity,
+			Vector2f(m_screenSize.x / 2.0f, m_screenSize.y / 2.0f),		// Position
+			Vector2f(m_playerConfig.S, m_playerConfig.S),               // Velocity
 			1.0f                                                        // Angle
 		);
 
-		m_registry.emplace<CShape>(player,
-			m_playerConfig.SR,                                  // Shape Radius
-			m_playerConfig.V,                                   // Verticies
+		m_registry.emplace<CShape>(m_playerEntity,
+			m_playerConfig.SR,											// Shape Radius
+			m_playerConfig.V,											// Verticies
 			sf::Color(static_cast<uint8_t>(m_playerConfig.FR),
 				static_cast<uint8_t>(m_playerConfig.FG),
-				static_cast<uint8_t>(m_playerConfig.FB)), // Fill Color
+				static_cast<uint8_t>(m_playerConfig.FB)),				// Fill Color
 			sf::Color(static_cast<uint8_t>(m_playerConfig.OR),
 				static_cast<uint8_t>(m_playerConfig.OG),
-				static_cast<uint8_t>(m_playerConfig.OB)), // Outline Color
-			m_playerConfig.OT                                  // Outline Thickness
+				static_cast<uint8_t>(m_playerConfig.OB)),				// Outline Color
+			m_playerConfig.OT											// Outline Thickness
 		);
 
-		m_registry.emplace<CColission>(player, static_cast<float>(m_playerConfig.CR + m_playerConfig.OT));
-		m_registry.emplace<CInput>(player);
-		m_registry.emplace<TPlayer>(player);
+		m_registry.emplace<CColission>(m_playerEntity, static_cast<float>(m_playerConfig.CR + m_playerConfig.OT));
+		m_registry.emplace<CInput>(m_playerEntity);
+		m_registry.emplace<TPlayer>(m_playerEntity);
 	}
 
 	void spawnEnemy()
@@ -406,41 +515,111 @@ class Game {
 		// Create enemy
 		auto enemy = m_registry.create();
 
+		float angle = RandomUtils::randomAngle();
+		float speed = RandomUtils::randomFloat(m_enemyConfig.SMIN, m_enemyConfig.SMAX);
+
+		Vector2f enemyPosition;
+		bool validPosition = false;
+
+		// Get player's position
+		auto& playerTransform = m_registry.get<CTransform>(m_registry.view<TPlayer>().front());
+		Vector2f playerPosition = playerTransform.position;
+
+		float minDistance = static_cast<float>(m_enemyConfig.SR * 4); // Minimum distance from player
+
+		// Generate a valid position for the enemy
+		while (!validPosition)
+		{
+			enemyPosition = Vector2f(
+				RandomUtils::randomFloat(static_cast<float>(m_enemySpawnArea.minX),
+					static_cast<float>(m_enemySpawnArea.maxX)),
+				RandomUtils::randomFloat(static_cast<float>(m_enemySpawnArea.minY),
+					static_cast<float>(m_enemySpawnArea.maxY))
+			);
+
+			// Calculate the distance between the enemy and the player
+			float distance = std::hypot(enemyPosition.x - playerPosition.x, enemyPosition.y - playerPosition.y);
+
+			// Check if the distance is greater than the minimum distance
+			if (distance > minDistance)
+			{
+				validPosition = true;
+			}
+		}
+
 		m_registry.emplace<CTransform>(enemy,
 			// Position
-			Vector2f(
-				static_cast<float>((rand() % (1 + m_enemySpawnArea.maxX - m_enemySpawnArea.minX)) + m_enemySpawnArea.minX),
-				static_cast<float>((rand() % (1 + m_enemySpawnArea.maxY - m_enemySpawnArea.minY)) + m_enemySpawnArea.minY)
-			),
+			enemyPosition,
 			// Velocity
 			Vector2f(
-				(static_cast<float>(rand()) / static_cast<float>(RAND_MAX)) * (m_enemyConfig.SMAX - m_enemyConfig.SMIN),
-				(static_cast<float>(rand()) / static_cast<float>(RAND_MAX)) * (m_enemyConfig.SMAX - m_enemyConfig.SMIN)
+				std::cos(angle) * speed,
+				std::sin(angle) * speed
 			),
 			// Angle
-			static_cast<float>(rand()) / 360
+			RandomUtils::randomAngle()
 		);
+
+		int radius = RandomUtils::randomInt(m_enemyConfig.SR / 1.5, m_enemyConfig.SR * 1.5);
 
 		m_registry.emplace<CShape>(enemy,
-			m_enemyConfig.SR,                                           // Shape Radius
-			(rand() % (1 + m_enemyConfig.VMIN - m_enemyConfig.VMAX)) + m_enemyConfig.VMIN, // Verticies
-			sf::Color(static_cast<uint8_t>(rand() % 255),
-				static_cast<uint8_t>(rand() % 255),
-				static_cast<uint8_t>(rand() % 255)),             // Fill Color
-			sf::Color(static_cast<uint8_t>(m_enemyConfig.OR),
+			radius,																			 // Shape Radius
+			RandomUtils::randomInt(m_enemyConfig.VMIN, m_enemyConfig.VMAX),					 // Vertices
+			RandomUtils::randomColor(),														 // Fill Color
+			sf::Color(static_cast<uint8_t>(m_enemyConfig.OR),                                // Outline Color
 				static_cast<uint8_t>(m_enemyConfig.OG),
-				static_cast<uint8_t>(m_enemyConfig.OB)),         // Outline Color
-			m_enemyConfig.OT                                            // Outline Thickness
+				static_cast<uint8_t>(m_enemyConfig.OB)),
+			m_enemyConfig.OT                                                                 // Outline Thickness
 		);
 
-		m_registry.emplace<CColission>(enemy, static_cast<float>(m_enemyConfig.CR + m_enemyConfig.OT));
+		m_registry.emplace<CColission>(enemy, static_cast<float>(radius + m_enemyConfig.OT));
 		m_registry.emplace<TEnemy>(enemy);
+		m_registry.emplace<CScore>(enemy, 100);
 
 		m_lastEnemySpawnTime = m_currentFrame;
 	}
 
+	void sLifespan() {}
 	void spawnBullet() {}
-	void spawnSmallEnemies() {}
+
+	void spawnSmallEnemies(entt::entity e)
+	{
+		// Spawn ~e.V small ~e.Color enemies at ~e.location, with half ~e.radius with ~e.score * 2
+
+		auto [eTransform, eCShape, eCScore, eCColission] = m_registry.get<CTransform, CShape, CScore, CColission>(e);
+		Vector2f location = eTransform.position;
+		float radius = eCShape.circle.getRadius() / 2.0f; // Half the radius
+		sf::Color color = eCShape.circle.getFillColor();
+		int points = eCShape.circle.getPointCount();
+		int score = eCScore.score * 2;
+		float colRadius = eCColission.radius / 2.0f;
+		float speed = std::sqrt(eTransform.velocity.x * eTransform.velocity.x + eTransform.velocity.y * eTransform.velocity.y);
+
+		for (int i = 0; i < points; i++) {
+			entt::entity smallEnemy = m_registry.create();
+
+			float angle = 2.0f * 3.14159265f * i / points; // Calculate angle for each small enemy
+
+			m_registry.emplace<CTransform>(smallEnemy, location,
+				Vector2f(
+					std::cos(angle) * speed,
+					std::sin(angle) * speed),
+				angle);
+
+			m_registry.emplace<CShape>(smallEnemy, radius, points, color,
+				sf::Color(static_cast<uint8_t>(m_playerConfig.OR),
+					static_cast<uint8_t>(m_playerConfig.OG),
+					static_cast<uint8_t>(m_playerConfig.OB)),				// Outline Color
+				m_playerConfig.OT											// Outline Thickness
+			);
+
+			m_registry.emplace<CColission>(smallEnemy, colRadius);
+			m_registry.emplace<CScore>(smallEnemy, score);
+			m_registry.emplace<TSmallEnemy>(smallEnemy);
+		}
+	}
+
+
+
 	void spawnSpecialWeapon() {}
 
 	void sGUI()
