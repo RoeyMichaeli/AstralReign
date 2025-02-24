@@ -24,11 +24,11 @@ struct CTransform {
 	}
 };
 
-struct CColission {
+struct CCollision {
 	float radius = 0;
 
-	CColission() = default;
-	CColission(float r) : radius(r) {}
+	CCollision() = default;
+	CCollision(float r) : radius(r) {}
 };
 
 struct CScore {
@@ -202,7 +202,6 @@ class Game {
 		}
 	}
 
-	// TODO: Correct angle calculation
 	void sMovement()
 	{
 		// Update movement for enemies (non-player entities)
@@ -368,18 +367,20 @@ class Game {
 
 		// --- Bullet vs. TEnemy collision ---
 		{
-			auto bulletView = m_registry.view<TBullet, CTransform, CColission>();
-			auto enemyView = m_registry.view<TEnemy, CTransform, CColission>();
+			auto bulletView = m_registry.view<TBullet, CTransform, CCollision>();
+			auto enemyView = m_registry.view<TEnemy, CTransform, CCollision, CScore>();
+			auto smallEnemyView = m_registry.view<TSmallEnemy, CTransform, CCollision, CScore>();
 
 			for (auto bullet : bulletView)
 			{
 				auto& bulletTransform = bulletView.get<CTransform>(bullet);
-				auto& bulletCol = bulletView.get<CColission>(bullet);
+				auto& bulletCol = bulletView.get<CCollision>(bullet);
 
 				for (auto enemy : enemyView)
 				{
 					auto& enemyTransform = enemyView.get<CTransform>(enemy);
-					auto& enemyCol = enemyView.get<CColission>(enemy);
+					auto& enemyCol = enemyView.get<CCollision>(enemy);
+					auto& enemyScore = enemyView.get<CScore>(enemy);
 
 					sf::Vector2f diff = bulletTransform.position - enemyTransform.position;
 					float distSquared = diff.x * diff.x + diff.y * diff.y;
@@ -389,26 +390,15 @@ class Game {
 					{
 						markForDestruction(bullet);
 						markForDestruction(enemy);
-						m_score += 100;
+						m_score += enemyScore.score;
 					}
 				}
-			}
-		}
-
-		// --- Bullet vs. TSmallEnemy collision ---
-		{
-			auto bulletView = m_registry.view<TBullet, CTransform, CColission>();
-			auto smallEnemyView = m_registry.view<TSmallEnemy, CTransform, CColission>();
-
-			for (auto bullet : bulletView)
-			{
-				auto& bulletTransform = bulletView.get<CTransform>(bullet);
-				auto& bulletCol = bulletView.get<CColission>(bullet);
 
 				for (auto smallEnemy : smallEnemyView)
 				{
 					auto& enemyTransform = smallEnemyView.get<CTransform>(smallEnemy);
-					auto& enemyCol = smallEnemyView.get<CColission>(smallEnemy);
+					auto& enemyCol = smallEnemyView.get<CCollision>(smallEnemy);
+					auto& enemyScore = smallEnemyView.get<CScore>(smallEnemy);
 
 					sf::Vector2f diff = bulletTransform.position - enemyTransform.position;
 					float distSquared = diff.x * diff.x + diff.y * diff.y;
@@ -418,9 +408,10 @@ class Game {
 					{
 						markForDestruction(bullet);
 						markForDestruction(smallEnemy);
-						m_score += 100;
+						m_score += enemyScore.score;
 					}
 				}
+
 			}
 		}
 
@@ -428,14 +419,14 @@ class Game {
 		{
 			auto player = m_playerEntity;
 			auto& playerTransform = m_registry.get<CTransform>(player);
-			auto& playerCol = m_registry.get<CColission>(player);
+			auto& playerCol = m_registry.get<CCollision>(player);
 
 			// Check against TEnemy
-			auto enemyView = m_registry.view<TEnemy, CTransform, CColission>();
+			auto enemyView = m_registry.view<TEnemy, CTransform, CCollision>();
 			for (auto enemy : enemyView)
 			{
 				auto& enemyTransform = enemyView.get<CTransform>(enemy);
-				auto& enemyCol = enemyView.get<CColission>(enemy);
+				auto& enemyCol = enemyView.get<CCollision>(enemy);
 
 				sf::Vector2f diff = playerTransform.position - enemyTransform.position;
 				float distSquared = diff.x * diff.x + diff.y * diff.y;
@@ -453,11 +444,11 @@ class Game {
 			}
 
 			// Check against TSmallEnemy
-			auto smallEnemyView = m_registry.view<TSmallEnemy, CTransform, CColission>();
+			auto smallEnemyView = m_registry.view<TSmallEnemy, CTransform, CCollision>();
 			for (auto smallEnemy : smallEnemyView)
 			{
 				auto& enemyTransform = smallEnemyView.get<CTransform>(smallEnemy);
-				auto& enemyCol = smallEnemyView.get<CColission>(smallEnemy);
+				auto& enemyCol = smallEnemyView.get<CCollision>(smallEnemy);
 
 				sf::Vector2f diff = playerTransform.position - enemyTransform.position;
 				float distSquared = diff.x * diff.x + diff.y * diff.y;
@@ -505,7 +496,7 @@ class Game {
 			m_playerConfig.OT											// Outline Thickness
 		);
 
-		m_registry.emplace<CColission>(m_playerEntity, static_cast<float>(m_playerConfig.CR + m_playerConfig.OT));
+		m_registry.emplace<CCollision>(m_playerEntity, static_cast<float>(m_playerConfig.CR + m_playerConfig.OT));
 		m_registry.emplace<CInput>(m_playerEntity);
 		m_registry.emplace<TPlayer>(m_playerEntity);
 	}
@@ -571,7 +562,7 @@ class Game {
 			m_enemyConfig.OT                                                                 // Outline Thickness
 		);
 
-		m_registry.emplace<CColission>(enemy, static_cast<float>(radius + m_enemyConfig.OT));
+		m_registry.emplace<CCollision>(enemy, static_cast<float>(radius + m_enemyConfig.OT));
 		m_registry.emplace<TEnemy>(enemy);
 		m_registry.emplace<CScore>(enemy, 100);
 
@@ -579,19 +570,20 @@ class Game {
 	}
 
 	void sLifespan() {}
+
 	void spawnBullet() {}
 
 	void spawnSmallEnemies(entt::entity e)
 	{
 		// Spawn ~e.V small ~e.Color enemies at ~e.location, with half ~e.radius with ~e.score * 2
 
-		auto [eTransform, eCShape, eCScore, eCColission] = m_registry.get<CTransform, CShape, CScore, CColission>(e);
+		auto [eTransform, eCShape, eCScore, eCCollision] = m_registry.get<CTransform, CShape, CScore, CCollision>(e);
 		Vector2f location = eTransform.position;
 		float radius = eCShape.circle.getRadius() / 2.0f; // Half the radius
 		sf::Color color = eCShape.circle.getFillColor();
 		int points = eCShape.circle.getPointCount();
 		int score = eCScore.score * 2;
-		float colRadius = eCColission.radius / 2.0f;
+		float colRadius = eCCollision.radius / 2.0f;
 		float speed = std::sqrt(eTransform.velocity.x * eTransform.velocity.x + eTransform.velocity.y * eTransform.velocity.y);
 
 		for (int i = 0; i < points; i++) {
@@ -612,13 +604,11 @@ class Game {
 				m_playerConfig.OT											// Outline Thickness
 			);
 
-			m_registry.emplace<CColission>(smallEnemy, colRadius);
+			m_registry.emplace<CCollision>(smallEnemy, colRadius);
 			m_registry.emplace<CScore>(smallEnemy, score);
 			m_registry.emplace<TSmallEnemy>(smallEnemy);
 		}
 	}
-
-
 
 	void spawnSpecialWeapon() {}
 
