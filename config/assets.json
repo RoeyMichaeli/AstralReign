@@ -1,0 +1,41 @@
+{
+  "assets": [
+    {
+      "type": "Texture",
+      "name": "background",
+      "path": "assets/images/Purple_Nebula_02-1024x1024.png"
+    },
+    {
+      "type": "Texture",
+      "name": "galaxy_bg",
+      "path": "assets/images/Blue_Nebula_08-1024x1024.png"
+    },
+    {
+      "type": "Texture",
+      "name": "planet",
+      "path": "assets/images/Lush_02-512x512.png"
+    },
+    {
+      "type": "Font",
+      "name": "tech",
+      "path": "assets/fonts/tech.ttf"
+    },
+    {
+      "type": "Animation",
+      "name": "explosion",
+      "texture": "background",
+      "frames": 8,
+      "speed": 4
+    },
+    {
+      "type": "Sound",
+      "name": "BackgroundMusic1",
+      "path": "assets/sounds/DavidKBD-Cosmic_Pack_02-Galactic_Pulse-full.ogg"
+    },
+    {
+      "type": "Sound",
+      "name": "BackgroundMusic2",
+      "path": "assets/sounds/DavidKBD-Cosmic_Pack_03-Nebula_Run-full.ogg"
+    }
+  ]
+}

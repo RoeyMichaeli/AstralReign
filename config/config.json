@@ -1,0 +1,8 @@
+{
+  "windowWidth": 1280,
+  "windowHeight": 768,
+  "windowTitle": "Astral Reign",
+  "frameRateLimit": 60,
+  "fullscreen": false,
+  "assetConfigPath": "config/assets.json"
+}
