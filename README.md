@@ -11,8 +11,7 @@ Gameplay revolves around several key modules, including economic management, tac
 
 **4. Technical Architecture & System Design**
 The game employs a modular architecture that allows different systems (e.g., economic, military, diplomatic) to operate independently while interacting through a shared data layer. This design enhances flexibility and scalability, enabling future updates and expansions without disrupting existing functionalities.
-
-The upper layers of the Architecture are built with OOP principles in mind, while performance-heavy sections, such as the economy simulation system, celestial simulation, geopolitical cost-balance analysis, physics, etc. are built with DOD principles in mind.
+The software is built with ECS and DOD architecture in mind.
 
 **5. User Experience & Interface Design**
 The user interface is focused on clarity and simplicity (Concise text and recognizable and easily differentiated icons), consistency (uniform fonts, colors, styles), feedback (less than 33ms between updates - in 30 fps scenarios, zero frames between updates). Visual hierarchy (Most critical information under one button click), Data Visualization (charts, graphs, dashboards), Minimize Cognitive Load (Essential data shown, with drill-down options)
